@@ -2,6 +2,10 @@
 #include "shell.h"
 #include <stdio.h>  // for getc, printf
 #include <stdlib.h> // malloc, free
+#include <sys/types.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <string.h>
 
 void initialize(void) {
 
@@ -25,17 +29,20 @@ void run_command(node_t *node) {
             char *shellCommand = node->command.program;
             char **argv = node->command.argv;
             int status;
-            pid_t childProcess = fork();
 
             if (strcmp(shellCommand, "exit") == 0) {
-               int exit_status = 0; 
 
                 if (node->command.argc > 1) {
-                    exit_status = atoi(node->command.argv[1]);
+                    exit(atoi(argv[1]));
                 }
 
-                exit(exit_status);
+            } else if (strcmp(shellCommand, "cd") == 0) {
+
+                chdir(argv[1]);
+
             } else {
+                pid_t childProcess = fork();
+
                 if (childProcess == 0) { // Means the current process is a child
                     execvp(shellCommand, argv);
                 } else if (childProcess > 0) { // This if for parent process that wait the child to return some sort of data, and then kill the process
@@ -62,5 +69,3 @@ void run_command(node_t *node) {
             break;
     }
 }
-
-
