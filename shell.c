@@ -17,7 +17,7 @@ void run_command(node_t *node) {
         prompt = "shellLine$";
     }
 
-    print_tree(node);
+    //print_tree(node);
 
     switch (node->type) {
         case NODE_COMMAND: {
@@ -25,16 +25,26 @@ void run_command(node_t *node) {
             char *shellCommand = node->command.program;
             char **argv = node->command.argv;
             int status;
-            pid_t pid = fork();
+            pid_t childProcess = fork();
 
-            if (pid == 0) { // Means the current process is a child
-                execvp(shellCommand, argv);
-                exit(1);
-            } else if (pid > 0) { // This if for parent process that wait the child to return some sort of data, and then kill the process
-                waitpid(pid, &status, 0);
+            if (strcmp(shellCommand, "exit") == 0) {
+               int exit_status = 0; 
+
+                if (node->command.argc > 1) {
+                    exit_status = atoi(node->command.argv[1]);
+                }
+
+                exit(exit_status);
             } else {
-                perror("Pid Error");
+                if (childProcess == 0) { // Means the current process is a child
+                    execvp(shellCommand, argv);
+                } else if (childProcess > 0) { // This if for parent process that wait the child to return some sort of data, and then kill the process
+                    waitpid(childProcess, &status, 0);
+                } else {
+                    perror("Pid Error");
+                }
             }
+
             break;
 
         }
