@@ -12,6 +12,12 @@
 #define STDIN 0
 #define STDOUT 1
 
+//Inputs to test
+// cd / | pwd -L
+// exit 1 | pwd -L
+// sleep 1 | sleep 0.5
+// sleep 0.5 | sleep 1
+
 void initialize(void) {
 
     if (prompt) {
@@ -22,6 +28,7 @@ void initialize(void) {
 
 void execute_command (pid_t process, char* command, char** arguments, int status) {
 
+    //printf("The command is %s\n", command);
     if (process == 0) { // Means the current process is a child
         execvp(command, arguments);
         perror(NULL); // Acts like a catch statement and returns the corresponding error if the execution fails
@@ -53,7 +60,7 @@ void run_command(node_t *node) {
                 }
 
             } else if (strcmp(shellCommand, "cd") == 0) {
-
+                //printf("CD Triggered");
                 chdir(argv[1]);
 
             } else { // This applies to any command that returns value. We make a child to not overwrite the parent
@@ -80,8 +87,7 @@ void run_command(node_t *node) {
 
             for (int i = 0; i < number_pipe_parts; i++) {
 
-                char *current_command = node->pipe.parts[i]->command.program;
-                char **argv = node->pipe.parts[i]->command.argv;
+                node_t *current_node = node->pipe.parts[i];
                 int status = 0;
                 pid_t current_process = fork();
 
@@ -92,7 +98,7 @@ void run_command(node_t *node) {
                         close(fd[PIPE_READ_FUNCTION]); // Since we do not read, we close the pipe reading function
                         dup2(fd[PIPE_WRITE_FUNCTION], STDOUT); // We direct the standard output onto the pipe
                         close(fd[PIPE_WRITE_FUNCTION]); // Following the directing of the STDOUT we close the pipe writing function
-                        execute_command(current_process, current_command, argv, status); // Since we directed the output onto the pipe, we can now perform operations and its output will be placed onto the pipe
+                        run_command(current_node); // Since we directed the output onto the pipe, we can now perform operations and its output will be placed onto the pipe
                         exit(0); // We exit each time to signal the process is done and that the next process can start/the parent can retake control
 
                     } else if (i == number_pipe_parts - 1) { // The last process does not write anything onto the pipe since there is no process after it, and only reads from it since it has all the information it needs
@@ -100,7 +106,7 @@ void run_command(node_t *node) {
                         close(fd[PIPE_WRITE_FUNCTION]); // Since we do not write onto the pipe, we close the pipe writing function
                         dup2(fd_input, STDIN); // We direct the standard input which was the output of the last process as the input of the last process
                         close(fd_input); // We close the the file descriptor to ensure no unnecessary file descriptors are open
-                        execute_command(current_process, current_command, argv, status); // After taking the input of the last process, we execute the corresponding command
+                        run_command(current_node); // After taking the input of the last process, we execute the corresponding command
                         exit(0);
 
                     } else { // Middle processes
@@ -110,7 +116,7 @@ void run_command(node_t *node) {
                         close(fd[PIPE_READ_FUNCTION]); // After directing the output of previous processes as the STDIN we no longer need to read data
                         dup2(fd[PIPE_WRITE_FUNCTION], STDOUT); // Redirects any standard output of the process to the write end of the pipe for the next process
                         close(fd[PIPE_WRITE_FUNCTION]); // After the redirection, any STDOUT will be added to the write end of the pipe, so the connection is already established
-                        execute_command(current_process, current_command, argv, status);
+                        run_command(current_node);
                         exit(0);
 
                     }
