@@ -19,11 +19,10 @@ void execute_command (pid_t process, char* command, char** arguments, int status
 
     if (process == 0) { // Means the current process is a child
         execvp(command, arguments);
+        perror(NULL);
     } else if (process > 0) { // This if for parent process that wait the child to return some sort of data, and then kill the process
         waitpid(process, &status, 0);
-    } else {
-        perror("Pid Error");
-    }
+    } 
     
 }
 
