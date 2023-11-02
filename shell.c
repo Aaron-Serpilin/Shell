@@ -16,6 +16,7 @@ void initialize(void) {
 }
 
 void execute_command (pid_t process, char* command, char** arguments, int status) {
+
     if (process == 0) { // Means the current process is a child
         execvp(command, arguments);
     } else if (process > 0) { // This if for parent process that wait the child to return some sort of data, and then kill the process
@@ -23,6 +24,7 @@ void execute_command (pid_t process, char* command, char** arguments, int status
     } else {
         perror("Pid Error");
     }
+    
 }
 
 void run_command(node_t *node) {
@@ -67,17 +69,9 @@ void run_command(node_t *node) {
         case NODE_REDIRECT:
             break;
         case NODE_SEQUENCE:{
-            char *firstCommand = node->sequence.first->command.program;
-            char **firstArguments = node->sequence.first->command.argv;
-            char *secondCommand = node->sequence.second->command.program;
-            char **secondArguments = node->sequence.second->command.argv;
-            int firstStatus = 0;
-            int secondStatus = 0;
 
-            pid_t firstProcess = fork();
-            execute_command(firstProcess, firstCommand, firstArguments, firstStatus);
-            pid_t secondProcess = fork();
-            execute_command(secondProcess, secondCommand, secondArguments, secondStatus);
+            run_command(node->sequence.first);
+            run_command(node->sequence.second);
 
             break;
         }
