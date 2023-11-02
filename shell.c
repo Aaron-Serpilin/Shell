@@ -15,6 +15,16 @@ void initialize(void) {
         
 }
 
+void execute_command (pid_t process, char* command, char** arguments, int status) {
+    if (process == 0) { // Means the current process is a child
+        execvp(command, arguments);
+    } else if (process > 0) { // This if for parent process that wait the child to return some sort of data, and then kill the process
+        waitpid(process, &status, 0);
+    } else {
+        perror("Pid Error");
+    }
+}
+
 void run_command(node_t *node) {
 
     if (prompt) {
@@ -28,9 +38,9 @@ void run_command(node_t *node) {
 
             char *shellCommand = node->command.program;
             char **argv = node->command.argv;
-            int status;
+            int status = 0;
 
-            if (strcmp(shellCommand, "exit") == 0) {
+            if (strcmp(shellCommand, "exit") == 0) { // Actionable commands are done in the parent and do not require forking protection
 
                 if (node->command.argc > 1) {
                     exit(atoi(argv[1]));
@@ -40,16 +50,11 @@ void run_command(node_t *node) {
 
                 chdir(argv[1]);
 
-            } else {
-                pid_t childProcess = fork();
+            } else { // This applies to any command that returns value. We make a child to not overwrite the parent
 
-                if (childProcess == 0) { // Means the current process is a child
-                    execvp(shellCommand, argv);
-                } else if (childProcess > 0) { // This if for parent process that wait the child to return some sort of data, and then kill the process
-                    waitpid(childProcess, &status, 0);
-                } else {
-                    perror("Pid Error");
-                }
+                pid_t childProcess = fork();
+                execute_command(childProcess, shellCommand, argv, status);
+
             }
 
             break;
@@ -61,8 +66,22 @@ void run_command(node_t *node) {
             break;
         case NODE_REDIRECT:
             break;
-        case NODE_SEQUENCE:
+        case NODE_SEQUENCE:{
+            char *firstCommand = node->sequence.first->command.program;
+            char **firstArguments = node->sequence.first->command.argv;
+            char *secondCommand = node->sequence.second->command.program;
+            char **secondArguments = node->sequence.second->command.argv;
+            int firstStatus = 0;
+            int secondStatus = 0;
+
+            pid_t firstProcess = fork();
+            execute_command(firstProcess, firstCommand, firstArguments, firstStatus);
+            pid_t secondProcess = fork();
+            execute_command(secondProcess, secondCommand, secondArguments, secondStatus);
+
             break;
+        }
+  
         case NODE_SUBSHELL:
             break;
         default:
