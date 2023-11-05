@@ -36,68 +36,48 @@ void execute_command (pid_t process, char* command, char** arguments, int status
     
 }
 
-void run_pipe (node_t *node) {
-
-    //Basic Pipe Functionality
-    // A | B means
-    // Start process A
-    // Start process B
-    // Periodically feed stdin to A's stdin
-    // Periodically feed A's stdout into B's stdin
-    // Periodically feed B's stdout to stdout
-    // Until A, B reach end of file
-
-    int fd[2];
-    int fd_input = STDIN; // We use this variable to make sure the input of the next command is the output of the current command
+void run_pipe(node_t *node) {
     int number_pipe_parts = node->pipe.n_parts;
+    int status = 0;
+    pid_t current_process;
 
-    if (pipe(fd) == -1) {
-        perror(NULL);
-    }
+    int fd[number_pipe_parts - 1][2]; // Array of pipes
 
     for (int i = 0; i < number_pipe_parts; i++) {
 
-        node_t *current_node = node->pipe.parts[i];
-        int status = 0;
-        pid_t current_process = fork();
+        if (i < number_pipe_parts - 1) {
+            if (pipe(fd[i]) == -1) {
+                perror(NULL);
+            }
+        }
+
+        current_process = fork(); // Each process is carried out in its own fork
 
         if (current_process == 0) { // Child Process
+            // When iterating through fd[i][0/1], we iterate through the different pipes that connect the multiple commands
+           if (i > 0) { 
 
-            if (i == 0) { // The first processes do not read from the pipe and only write onto it for the next process
+                close(fd[i - 1][PIPE_WRITE_FUNCTION]);
+                dup2(fd[i - 1][PIPE_READ_FUNCTION], STDIN);
+                close(fd[i - 1][PIPE_READ_FUNCTION]);
 
-                close(fd[PIPE_READ_FUNCTION]); // Since we do not read, we close the pipe reading function
-                dup2(fd[PIPE_WRITE_FUNCTION], STDOUT); // We direct the standard output onto the pipe
-                close(fd[PIPE_WRITE_FUNCTION]); // Following the directing of the STDOUT we close the pipe writing function
-                run_command(current_node); // Since we directed the output onto the pipe, we can now perform operations and its output will be placed onto the pipe
-                exit(0); // We exit each time to signal the process is done and that the next process can start/the parent can retake control
+            } else if (i < number_pipe_parts - 1) { 
 
-            } else if (i == number_pipe_parts - 1) { // The last process does not write anything onto the pipe since there is no process after it, and only reads from it since it has all the information it needs
-
-                close(fd[PIPE_WRITE_FUNCTION]); // Since we do not write onto the pipe, we close the pipe writing function
-                dup2(fd_input, STDIN); // We direct the standard input which was the output of the last process as the input of the last process
-                close(fd_input); // We close the the file descriptor to ensure no unnecessary file descriptors are open
-                run_command(current_node); // After taking the input of the last process, we execute the corresponding command
-                exit(0);
-
-            } else { // Middle processes
-
-                close(fd_input); // Close the standard input, it's not needed since we read from the previous process in the pipe
-                dup2(fd[PIPE_READ_FUNCTION], STDIN); // Enables the input of middle processes to read the output of previous processes
-                close(fd[PIPE_READ_FUNCTION]); // After directing the output of previous processes as the STDIN we no longer need to read data
-                dup2(fd[PIPE_WRITE_FUNCTION], STDOUT); // Redirects any standard output of the process to the write end of the pipe for the next process
-                close(fd[PIPE_WRITE_FUNCTION]); // After the redirection, any STDOUT will be added to the write end of the pipe, so the connection is already established
-                run_command(current_node);
-                exit(0);
+                close(fd[i][PIPE_READ_FUNCTION]);
+                dup2(fd[i][PIPE_WRITE_FUNCTION], STDOUT);
+                close(fd[i][PIPE_WRITE_FUNCTION]);
 
             }
 
+            run_command(node->pipe.parts[i]);
+            exit(0);
+            
         } else if (current_process > 0) { // Parent Process
 
-            close(fd[PIPE_WRITE_FUNCTION]);
-            if (fd_input != STDIN) {
-                close(fd_input);
+            if (i > 0) {
+                close(fd[i - 1][PIPE_READ_FUNCTION]);
+                close(fd[i - 1][PIPE_WRITE_FUNCTION]);
             }
-            fd_input = fd[PIPE_READ_FUNCTION];
 
         } else if (current_process == -1) { // Error
 
@@ -105,11 +85,18 @@ void run_pipe (node_t *node) {
             exit(0);
 
         }
-
-        waitpid(current_process, &status, 0);
-        
     }
+
+    // Close all the pipe file descriptors
+    for (int i = 0; i < number_pipe_parts - 1; i++) {
+        close(fd[i][PIPE_READ_FUNCTION]);
+        close(fd[i][PIPE_WRITE_FUNCTION]);
+    }
+
+    waitpid(current_process, &status, 0); // We only wait for the last process and not all to achieve the synchronous behavior
 }
+
+
 
 void run_command(node_t *node) {
 
