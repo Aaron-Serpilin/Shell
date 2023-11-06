@@ -57,9 +57,16 @@ void run_pipe(node_t *node) {
             // When iterating through fd[i][0/1], we iterate through the different pipes that connect the multiple commands
            if (i > 0) { 
 
-                close(fd[i - 1][PIPE_WRITE_FUNCTION]);
                 dup2(fd[i - 1][PIPE_READ_FUNCTION], STDIN);
-                close(fd[i - 1][PIPE_READ_FUNCTION]);
+
+                for (int j = 0; j < number_pipe_parts; j++) {
+                    
+                    if (j != i && j != i + 1) {
+                        close(fd[j][PIPE_WRITE_FUNCTION]);
+                        close(fd[j][PIPE_READ_FUNCTION]);
+                    }
+                    
+                }
 
             } else if (i < number_pipe_parts - 1) { 
 
@@ -96,8 +103,6 @@ void run_pipe(node_t *node) {
     waitpid(current_process, &status, 0); // We only wait for the last process and not all to achieve the synchronous behavior
 }
 
-
-
 void run_command(node_t *node) {
 
     if (prompt) {
@@ -124,6 +129,15 @@ void run_command(node_t *node) {
             } else if (strcmp(shellCommand, "cd") == 0) {
                
                 chdir(argv[1]);
+
+            } else if (strcmp(shellCommand, "set") == 0) {
+        
+                // setenv(argv[1], argv[2], 1);
+                putenv(argv[1]);
+
+            } else if (strcmp(shellCommand, "unset") == 0) {
+
+                unsetenv(argv[1]);
 
             } else { // This applies to any command that returns value. We make a child to not overwrite the parent
 
