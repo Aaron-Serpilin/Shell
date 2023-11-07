@@ -8,62 +8,92 @@
 #include <string.h>
 #include <signal.h>
 #include <stdbool.h>
-#include <limits.h>
+#include <pwd.h>
 
 #define PIPE_READ_FUNCTION 0
 #define PIPE_WRITE_FUNCTION 1
 #define STDIN 0
 #define STDOUT 1
-#define MY_HOST_NAME_MAX 255  // Common Hostname length
-#define MY_LOGIN_NAME_MAX 256 // Common Username length
-
-void initialize(void) {
-
-    if (prompt) {
-
-        prompt = "shellLine$ ";
-        
-    }
-        
-}
 
 // void initialize(void) {
-   
-//     char hostname[MY_HOST_NAME_MAX];
-//     char username[MY_LOGIN_NAME_MAX];
-//     char cwd[PATH_MAX]; // Current Working Directory
 
 //     if (prompt) {
 
-//         char* prompt_u = strstr(prompt, "\\u");
-//         char* prompt_h = strstr(prompt, "\\h");
-//         char* prompt_w = strstr(prompt, "\\w");
-
-//         if (prompt_u != NULL) {
-//             // Have to reassign prompt
-//             //printf("The U prompt is %s\n", prompt_u);
-//             strcpy(prompt_u, username);
-//             prompt = prompt_u;
-
-//         } else if (prompt_h != NULL) {
-
-//             strcpy(prompt_h, hostname);
-//             prompt = prompt_h;
-
-//         } else if (prompt_w != NULL) {
-
-//             strcpy(prompt_w, cwd);
-//             prompt = prompt_w;
-
-//         } else {
-
-//             prompt = "shellLine$";
-
-//         }
+//         prompt = "shellLine$ ";
+        
 //     }
-   
+        
 // }
 
+char *replace_string (char *orig, char *rep, char *with) {
+
+    char *result; 
+    char *ins;   
+    char *tmp;   
+    int len_rep; 
+    int len_with;
+    int len_front; 
+    int count;   
+
+    if (!orig || !rep)
+        return NULL;
+    len_rep = strlen(rep);
+    if (len_rep == 0)
+        return NULL; 
+    if (!with)
+        with = "";
+    len_with = strlen(with);
+
+    ins = orig;
+
+    for (count = 0; (tmp = strstr(ins, rep)); ++count) {
+        ins = tmp + len_rep;
+    }
+
+    tmp = result = malloc(strlen(orig) + (len_with - len_rep) * count + 1);
+
+    if (!result)
+        return NULL;
+
+    while (count--) {
+        ins = strstr(orig, rep);
+        len_front = ins - orig;
+        tmp = strncpy(tmp, orig, len_front) + len_front;
+        tmp = strcpy(tmp, with) + len_with;
+        orig += len_front + len_rep;
+    }
+
+    strcpy(tmp, orig);
+    return result;
+}
+
+char *update_prompt_line (char *shell_line, struct passwd *username_string, char *host_name, char *current_working_directory) {
+
+    if (shell_line) {
+        shell_line = replace_string(shell_line, "\\u", username_string->pw_name);
+        shell_line = replace_string(shell_line, "\\w", current_working_directory);
+        shell_line = replace_string(shell_line, "\\h", host_name);
+    }
+
+    return shell_line;
+}
+
+void initialize(void) {
+   
+    char hostname[1024];
+    uid_t username_code = getuid();
+    struct passwd *username_string = getpwuid(username_code);
+    char cwd[1024]; 
+    char *shell_line = getenv("PS1"); // The prompt is always initialized randomly under PS1
+    shell_line = update_prompt_line(shell_line, username_string, hostname, cwd);
+
+    if (prompt) {
+        printf("%s", shell_line);
+        prompt = "$";
+    }
+    
+}
+   
 void signal_handler (int signum) {
     printf("Interrupt Triggered. Terminating terminal with signal %d\n", signum);
 }
@@ -226,3 +256,4 @@ void run_command(node_t *node) {
             break;
     }
 }
+
