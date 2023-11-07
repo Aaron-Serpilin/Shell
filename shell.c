@@ -15,16 +15,6 @@
 #define STDIN 0
 #define STDOUT 1
 
-// void initialize(void) {
-
-//     if (prompt) {
-
-//         prompt = "shellLine$ ";
-        
-//     }
-        
-// }
-
 char *replace_string (char *orig, char *rep, char *with) {
 
     char *result; 
@@ -80,11 +70,14 @@ char *update_prompt_line (char *shell_line, struct passwd *username_string, char
 
 void initialize(void) {
    
-    char hostname[1024];
     uid_t username_code = getuid();
     struct passwd *username_string = getpwuid(username_code);
     char cwd[1024]; 
+    getcwd(cwd, sizeof(cwd));
+    char hostname[1024];
+    gethostname(hostname, sizeof(hostname));
     char *shell_line = getenv("PS1"); // The prompt is always initialized randomly under PS1
+
     shell_line = update_prompt_line(shell_line, username_string, hostname, cwd);
 
     if (prompt) {
@@ -250,8 +243,23 @@ void run_command(node_t *node) {
         }
   
         case NODE_SUBSHELL:
-            break;
+        {   
+            node_t *subshell_node = node->subshell.child;
+            pid_t childProcess = fork();
             
+            if (childProcess == 0) {
+                run_command(subshell_node);
+                exit(1);
+            } else if (childProcess > 0) {
+                waitpid(childProcess, NULL, 0);
+            } else {
+                perror(NULL);
+                exit(0);
+            }
+
+            break;
+        }
+              
         default:
             break;
     }
