@@ -7,36 +7,115 @@
 #include <sys/wait.h>
 #include <string.h>
 #include <signal.h>
+#include <stdbool.h>
+#include <limits.h>
 
 #define PIPE_READ_FUNCTION 0
 #define PIPE_WRITE_FUNCTION 1
 #define STDIN 0
 #define STDOUT 1
+#define MY_HOST_NAME_MAX 255  // Common Hostname length
+#define MY_LOGIN_NAME_MAX 256 // Common Username length
 
 void initialize(void) {
 
     if (prompt) {
+
         prompt = "shellLine$ ";
+        
     }
         
 }
+
+// void initialize(void) {
+   
+//     char hostname[MY_HOST_NAME_MAX];
+//     char username[MY_LOGIN_NAME_MAX];
+//     char cwd[PATH_MAX]; // Current Working Directory
+
+//     if (prompt) {
+
+//         char* prompt_u = strstr(prompt, "\\u");
+//         char* prompt_h = strstr(prompt, "\\h");
+//         char* prompt_w = strstr(prompt, "\\w");
+
+//         if (prompt_u != NULL) {
+//             // Have to reassign prompt
+//             //printf("The U prompt is %s\n", prompt_u);
+//             strcpy(prompt_u, username);
+//             prompt = prompt_u;
+
+//         } else if (prompt_h != NULL) {
+
+//             strcpy(prompt_h, hostname);
+//             prompt = prompt_h;
+
+//         } else if (prompt_w != NULL) {
+
+//             strcpy(prompt_w, cwd);
+//             prompt = prompt_w;
+
+//         } else {
+
+//             prompt = "shellLine$";
+
+//         }
+//     }
+   
+// }
 
 void signal_handler (int signum) {
     printf("Interrupt Triggered. Terminating terminal with signal %d\n", signum);
 }
 
-void execute_command (pid_t process, char* command, char** arguments, int status) {
+void execute_command (char* command, char** arguments, int status, bool isDetached) {
 
-    if (process == 0) { // Means the current process is a child
+    pid_t childProcess = fork();
+
+    if (childProcess == 0) { // Means the current process is a child
         execvp(command, arguments);
         perror(NULL); // Acts like a catch statement and returns the corresponding error if the execution fails
-    } else if (process > 0) { // This if for parent process that wait the child to return some sort of data, and then kill the process
-        waitpid(process, &status, 0);
+    } else if (childProcess > 0 && !isDetached) { // This if for parent process that wait the child to return some sort of data, and then kill the process
+        waitpid(childProcess, &status, 0);
     } 
     
 }
 
+void execute_actionable_commands (node_t *node, bool isDetached) {
+
+            signal(SIGINT, signal_handler); // Handles Interrupts
+
+            char *shellCommand = node->command.program;
+            char **argv = node->command.argv;
+            int status = 0;
+            
+            if (strcmp(shellCommand, "exit") == 0) { // Actionable commands are done in the parent and do not require forking protection
+
+                if (node->command.argc > 1) {
+                    exit(atoi(argv[1]));
+                }
+
+            } else if (strcmp(shellCommand, "cd") == 0) {
+               
+                chdir(argv[1]);
+
+            } else if (strcmp(shellCommand, "set") == 0) {
+        
+                putenv(argv[1]);
+
+            } else if (strcmp(shellCommand, "unset") == 0) {
+
+                unsetenv(argv[1]);
+
+            } else { // This applies to any command that returns value. We make a child to not overwrite the parent
+
+                execute_command(shellCommand, argv, status, isDetached);
+
+            }
+}
+
 void run_pipe(node_t *node) {
+
     int number_pipe_parts = node->pipe.n_parts;
     int status = 0;
     pid_t current_process;
@@ -57,16 +136,19 @@ void run_pipe(node_t *node) {
             // When iterating through fd[i][0/1], we iterate through the different pipes that connect the multiple commands
            if (i > 0) { 
 
-                dup2(fd[i - 1][PIPE_READ_FUNCTION], STDIN);
-
-                for (int j = 0; j < number_pipe_parts; j++) {
+                for (int j = 0; j < number_pipe_parts - 1; j++) { // We close all the pipe functions that are not needed
                     
-                    if (j != i && j != i + 1) {
+                    if (j != i && j != i - 1) {
                         close(fd[j][PIPE_WRITE_FUNCTION]);
                         close(fd[j][PIPE_READ_FUNCTION]);
                     }
                     
                 }
+
+                dup2(fd[i - 1][PIPE_READ_FUNCTION], STDIN);
+                close(fd[i -1][PIPE_WRITE_FUNCTION]);
+                close(fd[i - 1][PIPE_READ_FUNCTION]);
+
 
             } else if (i < number_pipe_parts - 1) { 
 
@@ -113,54 +195,25 @@ void run_command(node_t *node) {
 
     switch (node->type) {
         case NODE_COMMAND: {
-            
-            signal(SIGINT, signal_handler);
-            
-            char *shellCommand = node->command.program;
-            char **argv = node->command.argv;
-            int status = 0;
-
-            if (strcmp(shellCommand, "exit") == 0) { // Actionable commands are done in the parent and do not require forking protection
-
-                if (node->command.argc > 1) {
-                    exit(atoi(argv[1]));
-                }
-
-            } else if (strcmp(shellCommand, "cd") == 0) {
-               
-                chdir(argv[1]);
-
-            } else if (strcmp(shellCommand, "set") == 0) {
-        
-                // setenv(argv[1], argv[2], 1);
-                putenv(argv[1]);
-
-            } else if (strcmp(shellCommand, "unset") == 0) {
-
-                unsetenv(argv[1]);
-
-            } else { // This applies to any command that returns value. We make a child to not overwrite the parent
-
-                pid_t childProcess = fork();
-                execute_command(childProcess, shellCommand, argv, status);
-
-            }
-
+            execute_actionable_commands(node, false);
             break;
-
         }
-        case NODE_DETACH:
+
+        case NODE_DETACH: {
+            node_t *detach_node = node->detach.child;
+            execute_actionable_commands(detach_node, true);
             break;
+        }
+            
         case NODE_PIPE: {
-           
             run_pipe(node);
-
             break;
         }
+
         case NODE_REDIRECT:
             break;
-        case NODE_SEQUENCE:{
-            // This recursively breaks down the sequence commands until they are of type NODE_COMMAND
+
+        case NODE_SEQUENCE:{  // This recursively breaks down the sequence commands until they are of type NODE_COMMAND
             run_command(node->sequence.first);
             run_command(node->sequence.second);
             break;
@@ -168,6 +221,7 @@ void run_command(node_t *node) {
   
         case NODE_SUBSHELL:
             break;
+            
         default:
             break;
     }
