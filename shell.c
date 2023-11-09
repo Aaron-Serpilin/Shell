@@ -223,8 +223,18 @@ void run_command(node_t *node) {
         }
 
         case NODE_DETACH: {
-            node_t *detach_node = node->detach.child;
-            execute_actionable_commands(detach_node, true);
+            
+            pid_t childProcess = fork();
+            if (childProcess == 0) {
+                setpgid(0, 0);
+                node_t *detach_node = node->detach.child;
+                run_command(detach_node);
+                exit(1);
+            } else if (childProcess < 0) {
+                perror(NULL);
+                exit(0);
+            }
+            
             break;
         }
             
