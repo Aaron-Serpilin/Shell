@@ -147,10 +147,9 @@ void run_pipe(node_t *node) {
 
     for (int i = 0; i < number_pipe_parts; i++) {
 
-        if (i < number_pipe_parts - 1) {
-            if (pipe(fd[i]) == -1) {
+         if (pipe(fd[i]) == -1) {
                 perror(NULL);
-            }
+                exit(0);
         }
 
         current_process = fork(); // Each process is carried out in its own fork
@@ -159,24 +158,15 @@ void run_pipe(node_t *node) {
             // When iterating through fd[i][0/1], we iterate through the different pipes that connect the multiple commands
            if (i > 0) { 
 
-                for (int j = 0; j < number_pipe_parts - 1; j++) { // We close all the pipe functions that are not needed
-                    
-                    if (j != i && j != i - 1) {
-                        close(fd[j][PIPE_WRITE_FUNCTION]);
-                        close(fd[j][PIPE_READ_FUNCTION]);
-                    }
-                    
-                }
-
                 dup2(fd[i - 1][PIPE_READ_FUNCTION], STDIN);
-                close(fd[i -1][PIPE_WRITE_FUNCTION]);
                 close(fd[i - 1][PIPE_READ_FUNCTION]);
+                close(fd[i -1][PIPE_WRITE_FUNCTION]);
 
 
             } else if (i < number_pipe_parts - 1) { 
 
-                close(fd[i][PIPE_READ_FUNCTION]);
                 dup2(fd[i][PIPE_WRITE_FUNCTION], STDOUT);
+                close(fd[i][PIPE_READ_FUNCTION]);
                 close(fd[i][PIPE_WRITE_FUNCTION]);
 
             }
@@ -184,25 +174,22 @@ void run_pipe(node_t *node) {
             run_command(node->pipe.parts[i]);
             exit(0);
             
-        } else if (current_process > 0) { // Parent Process
+        } else if (current_process > 0) {
 
             if (i > 0) {
                 close(fd[i - 1][PIPE_READ_FUNCTION]);
                 close(fd[i - 1][PIPE_WRITE_FUNCTION]);
             }
 
-        } else if (current_process == -1) { // Error
-
+        } else {
             perror(NULL);
             exit(0);
-
         }
     }
-
-    // Close all the pipe file descriptors
-    for (int i = 0; i < number_pipe_parts - 1; i++) {
-        close(fd[i][PIPE_READ_FUNCTION]);
-        close(fd[i][PIPE_WRITE_FUNCTION]);
+       
+    for (int i = 0; i < number_pipe_parts; i++) {
+        close(fd[i - 1][PIPE_READ_FUNCTION]);
+        close(fd[i - 1][PIPE_WRITE_FUNCTION]);
     }
 
     waitpid(current_process, &status, 0); // We only wait for the last process and not all to achieve the synchronous behavior
@@ -223,7 +210,7 @@ void run_command(node_t *node) {
         }
 
         case NODE_DETACH: {
-            
+
             pid_t childProcess = fork();
             if (childProcess == 0) {
                 setpgid(0, 0);
