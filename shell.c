@@ -15,45 +15,31 @@
 #define STDIN 0
 #define STDOUT 1
 
-char *replace_string (char *orig, char *rep, char *with) {
+// Function to replace the strings for the prompt found in Stack Overflow
+char *replace_string (char *original_message, char *string_to_replace, char *replacement) {
 
-    char *result; 
-    char *ins;   
-    char *tmp;   
-    int len_rep; 
-    int len_with;
-    int len_front; 
-    int count;   
+    char *result, *ins, *tmp;     
+    int len_rep, len_with, len_front, count;   
 
-    if (!orig || !rep)
-        return NULL;
-    len_rep = strlen(rep);
-    if (len_rep == 0)
-        return NULL; 
-    if (!with)
-        with = "";
-    len_with = strlen(with);
+    len_rep = strlen(string_to_replace);
+    len_with = strlen(replacement);
+    ins = original_message;
 
-    ins = orig;
-
-    for (count = 0; (tmp = strstr(ins, rep)); ++count) {
+    for (count = 0; (tmp = strstr(ins, string_to_replace)); ++count) {
         ins = tmp + len_rep;
     }
 
-    tmp = result = malloc(strlen(orig) + (len_with - len_rep) * count + 1);
-
-    if (!result)
-        return NULL;
+    tmp = result = malloc(strlen(string_to_replace) + (len_with - len_rep) * count + 1);
 
     while (count--) {
-        ins = strstr(orig, rep);
-        len_front = ins - orig;
-        tmp = strncpy(tmp, orig, len_front) + len_front;
-        tmp = strcpy(tmp, with) + len_with;
-        orig += len_front + len_rep;
+        ins = strstr(original_message, string_to_replace);
+        len_front = ins - original_message;
+        tmp = strncpy(tmp, original_message, len_front) + len_front;
+        tmp = strcpy(tmp, replacement) + len_with;
+        original_message += len_front + len_rep;
     }
 
-    strcpy(tmp, orig);
+    strcpy(tmp, original_message);
     return result;
 }
 
@@ -68,7 +54,13 @@ char *update_prompt_line (char *shell_line, struct passwd *username_string, char
     return shell_line;
 }
 
+void signal_handler (int signum) {
+    printf("Interrupt Triggered. Terminating terminal with signal %d\n", signum);
+}
+
 void initialize(void) {
+
+    signal(SIGINT, signal_handler); // Handles Interrupts
    
     uid_t username_code = getuid();
     struct passwd *username_string = getpwuid(username_code);
@@ -87,10 +79,6 @@ void initialize(void) {
     
 }
    
-void signal_handler (int signum) {
-    printf("Interrupt Triggered. Terminating terminal with signal %d\n", signum);
-}
-
 void execute_command (char* command, char** arguments, int status, bool isDetached) {
 
     pid_t childProcess = fork();
@@ -105,8 +93,6 @@ void execute_command (char* command, char** arguments, int status, bool isDetach
 }
 
 void execute_actionable_commands (node_t *node, bool isDetached) {
-
-            signal(SIGINT, signal_handler); // Handles Interrupts
 
             char *shellCommand = node->command.program;
             char **argv = node->command.argv;
@@ -140,59 +126,90 @@ void execute_actionable_commands (node_t *node, bool isDetached) {
 void run_pipe(node_t *node) {
 
     int number_pipe_parts = node->pipe.n_parts;
-    int status = 0;
     pid_t current_process;
-
     int fd[number_pipe_parts - 1][2]; // Array of pipes
 
     for (int i = 0; i < number_pipe_parts; i++) {
 
-         if (pipe(fd[i]) == -1) {
-                perror(NULL);
-                exit(0);
-        }
+        pipe(fd[i]);
 
         current_process = fork(); // Each process is carried out in its own fork
 
         if (current_process == 0) { // Child Process
-            // When iterating through fd[i][0/1], we iterate through the different pipes that connect the multiple commands
+           
            if (i > 0) { 
 
                 dup2(fd[i - 1][PIPE_READ_FUNCTION], STDIN);
                 close(fd[i - 1][PIPE_READ_FUNCTION]);
                 close(fd[i -1][PIPE_WRITE_FUNCTION]);
 
-
-            } else if (i < number_pipe_parts - 1) { 
+            } 
+            
+            if (i < number_pipe_parts - 1) { 
 
                 dup2(fd[i][PIPE_WRITE_FUNCTION], STDOUT);
-                close(fd[i][PIPE_READ_FUNCTION]);
                 close(fd[i][PIPE_WRITE_FUNCTION]);
+                close(fd[i][PIPE_READ_FUNCTION]);
 
             }
 
             run_command(node->pipe.parts[i]);
             exit(0);
             
-        } else if (current_process > 0) {
+        } else if (current_process < 0) {
+
+            perror(NULL);
+            exit(0);
+
+        } else {
 
             if (i > 0) {
                 close(fd[i - 1][PIPE_READ_FUNCTION]);
                 close(fd[i - 1][PIPE_WRITE_FUNCTION]);
             }
 
-        } else {
-            perror(NULL);
-            exit(0);
-        }
+        } 
+        
     }
        
-    for (int i = 0; i < number_pipe_parts; i++) {
-        close(fd[i - 1][PIPE_READ_FUNCTION]);
-        close(fd[i - 1][PIPE_WRITE_FUNCTION]);
+    for (int i = 0; i < number_pipe_parts - 1; i++) {
+        close(fd[i][PIPE_WRITE_FUNCTION]);
+        close(fd[i][PIPE_READ_FUNCTION]);
     }
 
-    waitpid(current_process, &status, 0); // We only wait for the last process and not all to achieve the synchronous behavior
+    waitpid(current_process, NULL, 0); // We only wait for the last process and not all to achieve the synchronous behavior
+}
+
+void run_detach (node_t *node) {
+
+    pid_t childProcess = fork();
+    if (childProcess == 0) {
+        setpgid(0, 0);
+        node_t *detach_node = node->detach.child;
+        run_command(detach_node);
+        exit(1);
+    } else if (childProcess < 0) {
+        perror(NULL);
+        exit(0);
+    }
+
+}
+
+void run_subshell (node_t *node) {
+
+    node_t *subshell_node = node->subshell.child;
+    pid_t childProcess = fork();
+    
+    if (childProcess == 0) {
+        run_command(subshell_node);
+        exit(1);
+    } else if (childProcess > 0) {
+        waitpid(childProcess, NULL, 0);
+    } else {
+        perror(NULL);
+        exit(0);
+    }
+
 }
 
 void run_command(node_t *node) {
@@ -210,18 +227,7 @@ void run_command(node_t *node) {
         }
 
         case NODE_DETACH: {
-
-            pid_t childProcess = fork();
-            if (childProcess == 0) {
-                setpgid(0, 0);
-                node_t *detach_node = node->detach.child;
-                run_command(detach_node);
-                exit(1);
-            } else if (childProcess < 0) {
-                perror(NULL);
-                exit(0);
-            }
-            
+            run_detach(node);
             break;
         }
             
@@ -239,21 +245,8 @@ void run_command(node_t *node) {
             break;
         }
   
-        case NODE_SUBSHELL:
-        {   
-            node_t *subshell_node = node->subshell.child;
-            pid_t childProcess = fork();
-            
-            if (childProcess == 0) {
-                run_command(subshell_node);
-                exit(1);
-            } else if (childProcess > 0) {
-                waitpid(childProcess, NULL, 0);
-            } else {
-                perror(NULL);
-                exit(0);
-            }
-
+        case NODE_SUBSHELL:{   
+            run_subshell(node);
             break;
         }
               
